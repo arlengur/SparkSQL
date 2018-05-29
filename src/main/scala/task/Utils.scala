@@ -1,29 +1,28 @@
 package task
 
-import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.expressions.UserDefinedFunction
-import org.apache.spark.sql.functions.{concat_ws, count, lit}
+import org.apache.spark.sql.functions.{count, udf}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.util.Try
 
 object Utils {
-  def colData(df: DataFrame, colName: String, rowCount: Int): Profiling = {
+  def colData(df: DataFrame, colName: String, rowCount: Int)(implicit spark: SparkSession): Profiling = {
     val tempVal = df
                   .where(df(colName).isNotNull)
                   .groupBy(colName)
                   .agg(count(colName))
-    import org.apache.spark.sql.functions._
+    import spark.implicits._
     val values = tempVal
-                 .take(rowCount)
-                 .map(r => Map(r.get(0).toString -> r.getLong(1)))
+                 .as[(String, Long)]
+      .take(rowCount)
+      .map { case (name, count) => Map(name -> count) }
     val unique = tempVal
                  .select(count(tempVal(colName)))
-                 .first()
-                 .getLong(0)
+                 .as[Long]
+      .first()
     Profiling(colName, unique, values)
   }
-
-  import org.apache.spark.sql.functions._
 
   def parse: UserDefinedFunction = udf { x: String =>
     Try(x.trim.replaceAll("‘|’", "")).toOption

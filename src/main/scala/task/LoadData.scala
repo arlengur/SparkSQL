@@ -9,28 +9,28 @@ import task.Utils._
 trait DataProcessing {
   def sparkInit(): SparkSession
 
-  def loadData(spark: SparkSession, path: String): sql.DataFrame
+  def loadData(path: String)(implicit spark: SparkSession): sql.DataFrame
 
   def filterEmptyCells(df: sql.DataFrame): sql.DataFrame
 
-  def loadUserInput(spark: SparkSession, path: String): sql.DataFrame
+  def loadUserInput(path: String)(implicit spark: SparkSession): sql.DataFrame
 
   def transformData(userList: Array[Input],
                     newCols: Array[String],
                     oldCols: Array[String],
                     df: sql.DataFrame): sql.DataFrame
 
-  def profiling(df: sql.DataFrame, rowCount: Int): Array[Profiling]
+  def profiling(df: sql.DataFrame, rowCount: Int)(implicit spark: SparkSession): Array[Profiling]
 }
 
 object Test extends DataProcessing {
   def main(args: Array[String]): Unit = {
     // Spark init
-    val spark = sparkInit()
+    implicit val spark = sparkInit()
     import spark.implicits._
 
     // Step 1
-    val sample1 = loadData(spark, "data/Sample.csv")
+    val sample1 = loadData("data/Sample.csv")
     println("Step 1:")
     sample1.show()
 
@@ -40,7 +40,7 @@ object Test extends DataProcessing {
     sample2.show()
 
     // Step 3
-    val df = loadUserInput(spark, "data/user_input.json")
+    val df = loadUserInput("data/user_input.json")
     val userList = df.as[Input].collect
     val newColumns = userList.map(_.new_col_name)
     val oldColumns = sample2.columns
@@ -51,7 +51,8 @@ object Test extends DataProcessing {
     // Step 4
     val prof = profiling(sample3, 10)
     implicit val formats = DefaultFormats
-    val profilingJson = write(prof)
+    import org.json4s.native.Serialization.writePretty
+    val profilingJson = writePretty(prof)
     println(profilingJson)
   }
 
@@ -65,7 +66,7 @@ object Test extends DataProcessing {
     spark
   }
 
-  override def loadData(spark: SparkSession, path: String): DataFrame = {
+  override def loadData(path: String)(implicit spark: SparkSession): DataFrame = {
     val sample = spark.read.option("header", "true").csv("data/Sample.csv")
     val columns = sample.columns.toSeq.map(x => removeQuote(x))
     sample.toDF(columns: _*)
@@ -75,7 +76,7 @@ object Test extends DataProcessing {
     df.filter(!_.toSeq.exists(x => x != null && removeQuote(x.toString).isEmpty))
   }
 
-  override def loadUserInput(spark: SparkSession, path: String): DataFrame = {
+  override def loadUserInput(path: String)(implicit spark: SparkSession): DataFrame = {
     spark.read.json("data/user_input.json")
   }
 
@@ -98,7 +99,7 @@ object Test extends DataProcessing {
     }.drop(oldCols.diff(newCols): _*)
   }
 
-  override def profiling(df: DataFrame, rowCount: Int): Array[Profiling] = {
+  override def profiling(df: DataFrame, rowCount: Int)(implicit spark: SparkSession): Array[Profiling] = {
     df.columns.map(c => colData(df, c, rowCount))
   }
 }
