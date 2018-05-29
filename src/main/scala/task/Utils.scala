@@ -3,9 +3,8 @@ package task
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions.count
-import task.LoadData.sample3
 
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 
 object Utils {
   def colData(df: DataFrame, colName: String): Profiling = {
@@ -26,10 +25,11 @@ object Utils {
   import org.apache.spark.sql.functions._
 
   def parse: UserDefinedFunction = udf { x: String =>
-    Try(x.trim.replaceAll("‘|’", "")) match {
-      case Success(date) => Some(date)
-      case Failure(ex) => None
-    }
+    Try(x.trim.replaceAll("‘|’", "")).toOption
+  }
+
+  def removeQuote(s: String) = {
+    s.replaceAll("‘|’", "").trim
   }
 
 }

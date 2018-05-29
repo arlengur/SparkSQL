@@ -1,67 +1,101 @@
 package task
 
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization.write
-import task.Schema._
 import task.Utils._
 
-object LoadData extends App {
-  System.setProperty("hadoop.home.dir", "C:\\repo\\BigData\\lib")
-  val spark = SparkSession.builder()
-              .master("local[*]")
-              .appName("LoadData")
-              .getOrCreate()
+trait DataProcessing {
+  def sparkInit(): SparkSession
 
-  import spark.implicits._
+  def loadData(spark: SparkSession, path: String): sql.DataFrame
 
-  spark.sparkContext.setLogLevel("WARN")
+  def filterEmptyCells(df: sql.DataFrame): sql.DataFrame
 
-  // Step 1
+  def loadUserInput(spark: SparkSession, path: String): sql.DataFrame
 
-  val sample1 = spark.read
-                .option("header", "true")
-                .schema(schema)
-                .csv("data/Sample.csv")
+  def transformData(userList: Array[Input],
+                    newCols: Array[String],
+                    oldCols: Array[String],
+                    df: sql.DataFrame): sql.DataFrame
 
-  sample1.show()
+  def profiling(df: sql.DataFrame): Array[Profiling]
+}
 
-  // Step 2
+object Test extends DataProcessing {
+  def main(args: Array[String]): Unit = {
+    // Spark init
+    val spark = sparkInit()
+    import spark.implicits._
 
-  val sample2 = sample1.filter(!_.toSeq.exists(x => x != null && x.toString.replaceAll("‘|’", "").trim.isEmpty))
-  sample2.show()
+    // Step 1
+    val sample1 = loadData(spark, "data/Sample.csv")
+    sample1.show()
 
-  // Step 3
+    // Step 2
+    val sample2 = filterEmptyCells(sample1)
+    sample2.show()
 
-  val df = spark.read
-           .schema(user_schema)
-           .json("data/user_input.json")
+    // Step 3
+    val df = loadUserInput(spark, "data/user_input.json")
+    val userList = df.as[Input].collect
+    val newColumns = userList.map(_.new_col_name)
+    val oldColumns = sample2.columns
+    val sample3 = transformData(userList, newColumns, oldColumns, sample2)
+    sample3.show()
 
-  val userList = df.as[Input].collect
-  val newColumns = userList.map(_.new_col_name)
-  val oldColumns = sample2.columns
+    // Step 4
+    val prof = profiling(sample3)
+    implicit val formats = DefaultFormats
+    val profilingJson = write(prof)
+    println(profilingJson)
+  }
 
-  import org.apache.spark.sql.functions._
-  val sample3 = userList.foldLeft(sample2) {
-    (acc, userList) =>
-      userList.new_data_type match {
-        case "date" =>
-          acc.withColumn(userList.new_col_name, to_date(parse(acc(userList.existing_col_name)), userList.date_expression))
-          .drop(userList.existing_col_name)
-        case s: String =>
-          acc.withColumn(userList.new_col_name, parse(acc(userList.existing_col_name)).cast(s))
-          .drop(userList.existing_col_name)
-        case _ => acc
-      }
-  }.drop(oldColumns.diff(newColumns): _*)
+  override def sparkInit(): SparkSession = {
+    System.setProperty("hadoop.home.dir", "C:\\repo\\BigData\\lib")
+    val spark = SparkSession.builder()
+                .master("local[*]")
+                .appName("LoadData")
+                .getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+    spark
+  }
 
-  sample3.show()
+  override def loadData(spark: SparkSession, path: String): DataFrame = {
+    val sample = spark.read.option("header", "true").csv("data/Sample.csv")
+    val columns = sample.columns.toSeq.map(x => removeQuote(x))
+    sample.toDF(columns: _*)
+  }
 
-  // Step 4
-  val profiling = sample3.columns.map(c => colData(sample3, c))
+  override def filterEmptyCells(df: DataFrame): DataFrame = {
+    df.filter(!_.toSeq.exists(x => x != null && removeQuote(x.toString).isEmpty))
+  }
 
-  implicit val formats = DefaultFormats
-  val profilingJSON = write(profiling)
-  println(profilingJSON)
+  override def loadUserInput(spark: SparkSession, path: String): DataFrame = {
+    spark.read.json("data/user_input.json")
+  }
 
+  override def transformData(userList: Array[Input],
+                             newCols: Array[String],
+                             oldCols: Array[String],
+                             df: DataFrame): DataFrame = {
+    import org.apache.spark.sql.functions._
+    userList.foldLeft(df) {
+      (acc, userList) =>
+        userList.new_data_type match {
+          case "date" =>
+            acc.withColumn(userList.new_col_name, to_date(parse(acc(userList.existing_col_name)), userList.date_expression))
+            .drop(userList.existing_col_name)
+          case s: String =>
+            acc.withColumn(userList.new_col_name, parse(acc(userList.existing_col_name)).cast(s))
+            .drop(userList.existing_col_name)
+          case _ => acc
+        }
+    }.drop(oldCols.diff(newCols): _*)
+  }
+
+  override def profiling(df: DataFrame): Array[Profiling] = {
+    df.columns.map(c => colData(df, c))
+  }
 }
