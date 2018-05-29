@@ -2,18 +2,19 @@ package task
 
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.expressions.UserDefinedFunction
-import org.apache.spark.sql.functions.count
+import org.apache.spark.sql.functions.{concat_ws, count, lit}
 
 import scala.util.Try
 
 object Utils {
-  def colData(df: DataFrame, colName: String): Profiling = {
+  def colData(df: DataFrame, colName: String, rowCount: Int): Profiling = {
     val tempVal = df
                   .where(df(colName).isNotNull)
                   .groupBy(colName)
                   .agg(count(colName))
+    import org.apache.spark.sql.functions._
     val values = tempVal
-                 .collect()
+                 .take(rowCount)
                  .map(r => Map(r.get(0).toString -> r.getLong(1)))
     val unique = tempVal
                  .select(count(tempVal(colName)))
@@ -31,5 +32,4 @@ object Utils {
   def removeQuote(s: String) = {
     s.replaceAll("‘|’", "").trim
   }
-
 }

@@ -20,7 +20,7 @@ trait DataProcessing {
                     oldCols: Array[String],
                     df: sql.DataFrame): sql.DataFrame
 
-  def profiling(df: sql.DataFrame): Array[Profiling]
+  def profiling(df: sql.DataFrame, rowCount: Int): Array[Profiling]
 }
 
 object Test extends DataProcessing {
@@ -31,10 +31,12 @@ object Test extends DataProcessing {
 
     // Step 1
     val sample1 = loadData(spark, "data/Sample.csv")
+    println("Step 1:")
     sample1.show()
 
     // Step 2
     val sample2 = filterEmptyCells(sample1)
+    println("Step 2:")
     sample2.show()
 
     // Step 3
@@ -43,10 +45,11 @@ object Test extends DataProcessing {
     val newColumns = userList.map(_.new_col_name)
     val oldColumns = sample2.columns
     val sample3 = transformData(userList, newColumns, oldColumns, sample2)
+    println("Step 3:")
     sample3.show()
 
     // Step 4
-    val prof = profiling(sample3)
+    val prof = profiling(sample3, 10)
     implicit val formats = DefaultFormats
     val profilingJson = write(prof)
     println(profilingJson)
@@ -95,7 +98,7 @@ object Test extends DataProcessing {
     }.drop(oldCols.diff(newCols): _*)
   }
 
-  override def profiling(df: DataFrame): Array[Profiling] = {
-    df.columns.map(c => colData(df, c))
+  override def profiling(df: DataFrame, rowCount: Int): Array[Profiling] = {
+    df.columns.map(c => colData(df, c, rowCount))
   }
 }
